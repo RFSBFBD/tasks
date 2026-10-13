@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    command: >
+      sh -c "python manage.py migrate &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+
+  mcp:
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+
+  # ---------------------------------------------------------------
+  # Frontend (Next.js) is kept OUTSIDE this backend repo on purpose —
+  # see PROMPTS.md stage 3 for the service block your agent should
+  # add to this file once the frontend repo is wired to Clerk + this
+  # API. It will look roughly like:
+  #
+  # frontend:
+  #   build: ../my-task-frontend
+  #   env_file: ../my-task-frontend/.env.local
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - backend
+  # ---------------------------------------------------------------
+
+volumes:
+  postgres_data:
